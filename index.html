@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Alepa-fillarit</title>
+
+  <!-- PWA: asennettavuus puhelimen kotivalikkoon -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#12b76a" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Fillarit" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    :root {
+      --accent: #12b76a;      /* Bolt-vihreä */
+      --accent-d: #0e9457;
+      --ink: #10141a;
+      --muted: #6b7280;
+      --line: #eceef1;
+      --user: #2e7cf6;
+      --good: #12b76a;
+      --mid: #f59e0b;
+      --none: #b0b6bf;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink); background: #e7ebf0; overflow: hidden;
+    }
+    #map { position: absolute; inset: 0; z-index: 0; }
+
+    /* Hakupalkki */
+    .searchwrap { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; right: 12px; z-index: 1200; }
+    .searchbar {
+      display: flex; align-items: center; gap: 10px;
+      background: #fff; border-radius: 16px; padding: 13px 16px;
+      box-shadow: 0 6px 24px rgba(16,20,26,.14);
+    }
+    .searchbar svg { flex: none; }
+    .searchbar input {
+      border: 0; outline: 0; font-size: 16px; width: 100%; background: transparent; color: var(--ink);
+    }
+    .searchbar .clr { color: var(--muted); font-size: 20px; cursor: pointer; display: none; padding: 0 2px; }
+    .results {
+      margin-top: 8px; background: #fff; border-radius: 16px; overflow: hidden;
+      box-shadow: 0 6px 24px rgba(16,20,26,.14); display: none;
+    }
+    .results .item { padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+    .results .item:last-child { border-bottom: 0; }
+    .results .item:active { background: #f3f5f8; }
+    .results .item .t { font-size: 15px; font-weight: 600; }
+    .results .item .s { font-size: 13px; color: var(--muted); }
+
+    /* Paikannusnappi */
+    .fab {
+      position: absolute; right: 14px; z-index: 1100;
+      bottom: calc(var(--sheet-h, 168px) + 16px);
+      width: 48px; height: 48px; border-radius: 50%; border: 0;
+      background: #fff; box-shadow: 0 4px 16px rgba(16,20,26,.2);
+      display: grid; place-items: center; cursor: pointer; transition: bottom .2s ease;
+    }
+    .fab svg { color: var(--user); }
+
+    /* Alapaneeli (sheet) */
+    .sheet {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 1150;
+      background: #fff; border-radius: 22px 22px 0 0;
+      box-shadow: 0 -6px 30px rgba(16,20,26,.16);
+      padding: 8px 18px calc(18px + env(safe-area-inset-bottom));
+      max-height: 72vh; overflow-y: auto;
+      transition: transform .25s ease;
+    }
+    .grip { width: 42px; height: 5px; border-radius: 3px; background: #e2e6eb; margin: 4px auto 12px; }
+    .sheet h1 { font-size: 19px; margin: 0 0 2px; }
+    .sheet .sub { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+
+    .stationList { list-style: none; margin: 0; padding: 0; }
+    .stationList li {
+      display: flex; align-items: center; gap: 12px; padding: 11px 4px;
+      border-bottom: 1px solid var(--line); cursor: pointer;
+    }
+    .stationList li:active { background: #f6f8fa; }
+    .badge {
+      flex: none; width: 40px; height: 40px; border-radius: 12px; color: #fff;
+      display: grid; place-items: center; font-weight: 700; font-size: 16px;
+    }
+    .st-name { font-weight: 600; font-size: 15px; }
+    .st-meta { color: var(--muted); font-size: 13px; }
+    .st-dist { margin-left: auto; color: var(--muted); font-size: 13px; text-align: right; white-space: nowrap; }
+
+    .detail .top { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .detail .big { font-size: 34px; font-weight: 800; line-height: 1; }
+    .detail .kpis { display: flex; gap: 10px; margin-bottom: 16px; }
+    .kpi { flex: 1; background: #f4f6f8; border-radius: 14px; padding: 12px 14px; }
+    .kpi b { font-size: 20px; } .kpi span { display: block; color: var(--muted); font-size: 12px; }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; border: 0; border-radius: 14px; padding: 15px; font-size: 16px; font-weight: 700;
+      background: var(--accent); color: #fff; cursor: pointer;
+    }
+    .btn:active { background: var(--accent-d); }
+    .btn.ghost { background: #f0f2f5; color: var(--ink); }
+    .btn-row { display: flex; gap: 10px; }
+    .back { background: none; border: 0; color: var(--muted); font-size: 14px; padding: 0 0 10px; cursor: pointer; }
+
+    /* Kartan merkit */
+    .pin {
+      display: grid; place-items: center; border-radius: 50%;
+      color: #fff; font-weight: 700; font-size: 12px; border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,.35);
+    }
+    .userdot { width: 18px; height: 18px; border-radius: 50%; background: var(--user);
+      border: 3px solid #fff; box-shadow: 0 0 0 4px rgba(46,124,246,.25); }
+    .destpin { font-size: 26px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.3)); }
+
+    .toast {
+      position: absolute; left: 50%; bottom: calc(var(--sheet-h,168px) + 20px); transform: translateX(-50%);
+      background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px;
+      z-index: 1300; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="searchwrap">
+    <div class="searchbar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="search" type="search" placeholder="Minne menet?" autocomplete="off" />
+      <span class="clr" id="clr">×</span>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+
+  <button class="fab" id="locate" title="Paikanna minut">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
+  </button>
+
+  <div class="sheet" id="sheet"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = "https://api.citybik.es/v2/networks/citybikes-helsinki";
+    const OSRM = "https://routing.openstreetmap.de/routed-foot/route/v1/driving/";
+    const PHOTON = "https://photon.komoot.io/api/";
+
+    const map = L.map("map", { zoomControl: false }).setView([60.1699, 24.9384], 13);
+    L.control.zoom({ position: "bottomleft" }).addTo(map);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OpenStreetMap, CARTO · Data: Digitransit/HSL (CC BY 4.0)', maxZoom: 20,
+    }).addTo(map);
+
+    let stations = [];
+    let userLoc = null;             // {lat, lng}
+    let userMarker = null;
+    let destMarker = null;
+    let routeLine = null;
+    let selected = null;            // valittu asema
+    const markerLayer = L.layerGroup().addTo(map);
+
+    // ---------- apurit ----------
+    const R = 6371000;
+    function dist(a, b) {
+      const dLat = (b.lat - a.lat) * Math.PI/180, dLng = (b.lng - a.lng) * Math.PI/180;
+      const la1 = a.lat*Math.PI/180, la2 = b.lat*Math.PI/180;
+      const x = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+      return 2*R*Math.asin(Math.sqrt(x));
+    }
+    const fmtDist = m => m < 1000 ? Math.round(m) + " m" : (m/1000).toFixed(1) + " km";
+    const fmtMin  = s => Math.max(1, Math.round(s/60)) + " min";
+    const colorFor = b => b >= 5 ? getComputedStyle(document.documentElement).getPropertyValue('--good')
+                        : b >= 1 ? getComputedStyle(document.documentElement).getPropertyValue('--mid')
+                        : getComputedStyle(document.documentElement).getPropertyValue('--none');
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+    let toastTimer;
+    function toast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg; t.classList.add("show");
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+    }
+    function setSheetHeightVar() {
+      const h = document.getElementById("sheet").offsetHeight || 168;
+      document.documentElement.style.setProperty("--sheet-h", h + "px");
+    }
+
+    // ---------- asemat kartalle ----------
+    function drawStations() {
+      markerLayer.clearLayers();
+      for (const s of stations) {
+        const bikes = s.free_bikes ?? 0;
+        const size = 30;
+        const icon = L.divIcon({
+          className: "", iconSize: [size, size], iconAnchor: [size/2, size/2],
+          html: `<div class="pin" style="width:${size}px;height:${size}px;background:${colorFor(bikes)}">${bikes}</div>`
+        });
+        const m = L.marker([s.latitude, s.longitude], { icon })
+          .bindTooltip(`${esc(s.name)} · ${bikes} pyörää`, { direction: "top" })
+          .on("click", () => selectStation(s));
+        m.addTo(markerLayer);
+      }
+    }
+
+    // ---------- data ----------
+    async function loadStations() {
+      try {
+        const r = await fetch(API, { cache: "no-store" });
+        stations = (await r.json()).network.stations || [];
+        drawStations();
+        if (!selected && !destMarker) showHome();
+      } catch (e) { toast("Datan haku epäonnistui"); }
+    }
+
+    // ---------- reititys ----------
+    async function walkRoute(from, to) {
+      const url = `${OSRM}${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.code !== "Ok" || !j.routes.length) throw new Error("no route");
+      const route = j.routes[0];
+      const latlngs = route.geometry.coordinates.map(c => [c[1], c[0]]);
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(latlngs, { color: "#10141a", weight: 5, opacity: .85, lineCap: "round" }).addTo(map);
+      return { distance: route.distance, duration: route.duration, latlngs };
+    }
+    function clearRoute() { if (routeLine) { map.removeLayer(routeLine); routeLine = null; } }
+
+    // ---------- näkymät (sheet) ----------
+    const sheet = document.getElementById("sheet");
+
+    function showHome() {
+      selected = null;
+      const total = stations.reduce((a, s) => a + (s.free_bikes ?? 0), 0);
+      let list = [...stations];
+      if (userLoc) list.sort((a, b) =>
+        dist(userLoc, {lat:a.latitude,lng:a.longitude}) - dist(userLoc, {lat:b.latitude,lng:b.longitude}));
+      list = list.slice(0, 12);
+
+      sheet.innerHTML = `
+        <div class="grip"></div>
+        <h1>Alepa-fillarit</h1>
+        <p class="sub">${total} pyörää · ${stations.length} asemaa · ${userLoc ? "lähimmät sinusta" : "paina 📍 nähdäksesi lähimmät"}</p>
+        <ul class="stationList">
+          ${list.map(s => {
+            const b = s.free_bikes ?? 0;
+            const d = userLoc ? fmtDist(dist(userLoc, {lat:s.latitude,lng:s.longitude})) : "";
+            return `<li data-id="${s.id}">
+              <div class="badge" style="background:${colorFor(b)}">${b}</div>
+              <div><div class="st-name">${esc(s.name)}</div><div class="st-meta">${b} pyörää · ${s.empty_slots ?? 0} telakkaa</div></div>
+              <div class="st-dist">${d}</div>
+            </li>`;
+          }).join("")}
+        </ul>`;
+      sheet.querySelectorAll("li[data-id]").forEach(li =>
+        li.addEventListener("click", () => selectStation(stations.find(s => s.id === li.dataset.id))));
+      setSheetHeightVar();
+    }
+
+    async function selectStation(s) {
+      if (!s) return;
+      selected = s;
+      const b = s.free_bikes ?? 0;
+      map.setView([s.latitude, s.longitude], Math.max(map.getZoom(), 15), { animate: true });
+
+      sheet.innerHTML = `
+        <div class="grip"></div>
+        <button class="back" id="back">‹ Takaisin</button>
+        <div class="detail">
+          <div class="top">
+            <div class="badge" style="width:52px;height:52px;border-radius:14px;font-size:22px;background:${colorFor(b)}">${b}</div>
+            <div><h1 style="margin:0">${esc(s.name)}</h1><p class="sub" style="margin:0" id="eta">Lasketaan kävelyreittiä…</p></div>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><b>${b}</b><span>Pyörää nyt</span></div>
+            <div class="kpi"><b>${s.empty_slots ?? 0}</b><span>Vapaata telakkaa</span></div>
+          </div>
+          <button class="btn" id="go">Näytä kävelyreitti</button>
+        </div>`;
+      document.getElementById("back").onclick = () => { clearRoute(); showHome(); };
+      const go = () => routeToStation(s);
+      document.getElementById("go").onclick = go;
+      setSheetHeightVar();
+
+      if (userLoc) routeToStation(s); // piirrä heti jos sijainti tiedossa
+      else document.getElementById("eta").textContent = "Paina 📍 niin näet reitin";
+    }
+
+    async function routeToStation(s) {
+      if (!userLoc) { toast("Paikanna itsesi ensin (📍)"); return; }
+      const eta = document.getElementById("eta");
+      try {
+        const to = { lat: s.latitude, lng: s.longitude };
+        const rt = await walkRoute(userLoc, to);
+        if (eta) eta.textContent = `🚶 ${fmtMin(rt.duration)} kävelyä · ${fmtDist(rt.distance)}`;
+        const grp = L.latLngBounds([ [userLoc.lat, userLoc.lng], [s.latitude, s.longitude] ]);
+        map.fitBounds(grp, { paddingTopLeft: [40, 90], paddingBottomRight: [40, sheet.offsetHeight + 30] });
+      } catch (e) { if (eta) eta.textContent = "Reittiä ei löytynyt"; }
+    }
+
+    async function showDestination(place) {
+      selected = null; clearRoute();
+      const to = { lat: place.lat, lng: place.lng };
+      if (destMarker) map.removeLayer(destMarker);
+      destMarker = L.marker([to.lat, to.lng], {
+        icon: L.divIcon({ className: "", html: '<div class="destpin">📍</div>', iconSize: [26, 26], iconAnchor: [13, 26] })
+      }).addTo(map);
+
+      // lähin asema määränpäähän
+      let near = null, best = Infinity;
+      for (const s of stations) {
+        const d = dist(to, { lat: s.latitude, lng: s.longitude });
+        if (d < best) { best = d; near = s; }
+      }
+
+      sheet.innerHTML = `
+        <div class="grip"></div>
+        <button class="back" id="back">‹ Takaisin</button>
+        <div class="detail">
+          <h1>${esc(place.name)}</h1>
+          <p class="sub" id="eta">${userLoc ? "Lasketaan kävelyreittiä…" : "Paina 📍 niin näet reitin tänne"}</p>
+          ${near ? `<div class="kpi" style="margin-bottom:14px"><b>${near.free_bikes ?? 0} pyörää</b><span>Lähin asema: ${esc(near.name)} (${fmtDist(best)})</span></div>` : ""}
+          <div class="btn-row">
+            <button class="btn" id="goDest">Reitti tänne</button>
+            ${near ? `<button class="btn ghost" id="goStation">Lähin asema</button>` : ""}
+          </div>
+        </div>`;
+      document.getElementById("back").onclick = () => {
+        clearRoute(); if (destMarker) { map.removeLayer(destMarker); destMarker = null; } showHome();
+      };
+      document.getElementById("goDest").onclick = async () => {
+        if (!userLoc) return toast("Paikanna itsesi ensin (📍)");
+        const eta = document.getElementById("eta");
+        try {
+          const rt = await walkRoute(userLoc, to);
+          eta.textContent = `🚶 ${fmtMin(rt.duration)} · ${fmtDist(rt.distance)} määränpäähän`;
+          map.fitBounds(L.latLngBounds([[userLoc.lat,userLoc.lng],[to.lat,to.lng]]),
+            { paddingTopLeft:[40,90], paddingBottomRight:[40, sheet.offsetHeight+30] });
+        } catch { eta.textContent = "Reittiä ei löytynyt"; }
+      };
+      if (near) document.getElementById("goStation").onclick = () => selectStation(near);
+      setSheetHeightVar();
+      map.setView([to.lat, to.lng], 15, { animate: true });
+      if (userLoc) document.getElementById("goDest").click();
+    }
+
+    // ---------- paikannus ----------
+    function setUser(lat, lng, recenter) {
+      userLoc = { lat, lng };
+      if (userMarker) userMarker.setLatLng([lat, lng]);
+      else userMarker = L.marker([lat, lng], {
+        icon: L.divIcon({ className: "", html: '<div class="userdot"></div>', iconSize: [18,18], iconAnchor: [9,9] }),
+        zIndexOffset: 1000, interactive: false,
+      }).addTo(map);
+      if (recenter) map.setView([lat, lng], 15, { animate: true });
+    }
+    document.getElementById("locate").onclick = () => {
+      if (!navigator.geolocation) return toast("Selain ei tue paikannusta");
+      toast("Paikannetaan…");
+      navigator.geolocation.getCurrentPosition(
+        p => { setUser(p.coords.latitude, p.coords.longitude, true);
+               if (selected) routeToStation(selected); else showHome(); },
+        () => toast("Paikannus ei onnistunut — napauta karttaa asettaaksesi sijainnin"),
+        { enableHighAccuracy: true, timeout: 8000 });
+    };
+    // vararatkaisu: aseta sijainti napauttamalla karttaa
+    map.on("click", e => { if (!userLoc) { setUser(e.latlng.lat, e.latlng.lng, false); toast("Sijainti asetettu"); showHome(); } });
+
+    // ---------- haku (Photon) ----------
+    const searchEl = document.getElementById("search");
+    const resultsEl = document.getElementById("results");
+    const clrEl = document.getElementById("clr");
+    let searchTimer;
+    searchEl.addEventListener("input", () => {
+      clrEl.style.display = searchEl.value ? "block" : "none";
+      clearTimeout(searchTimer);
+      const q = searchEl.value.trim();
+      if (q.length < 3) { resultsEl.style.display = "none"; return; }
+      searchTimer = setTimeout(() => geocode(q), 280);
+    });
+    clrEl.onclick = () => { searchEl.value = ""; clrEl.style.display = "none"; resultsEl.style.display = "none"; };
+
+    async function geocode(q) {
+      try {
+        const c = userLoc || { lat: 60.17, lng: 24.94 };
+        const r = await fetch(`${PHOTON}?q=${encodeURIComponent(q)}&limit=6&lang=fi&lat=${c.lat}&lon=${c.lng}`);
+        const j = await r.json();
+        const feats = (j.features || []).filter(f => f.geometry?.type === "Point");
+        if (!feats.length) { resultsEl.style.display = "none"; return; }
+        resultsEl.innerHTML = feats.map((f, i) => {
+          const p = f.properties;
+          const title = p.name || p.street || "Sijainti";
+          const bits = [p.street && p.housenumber ? p.street+" "+p.housenumber : p.street, p.city, p.state].filter(Boolean);
+          return `<div class="item" data-i="${i}"><div class="t">${esc(title)}</div><div class="s">${esc(bits.join(", "))}</div></div>`;
+        }).join("");
+        resultsEl.style.display = "block";
+        resultsEl.querySelectorAll(".item").forEach(el => el.onclick = () => {
+          const f = feats[+el.dataset.i], p = f.properties;
+          resultsEl.style.display = "none";
+          searchEl.value = p.name || p.street || "";
+          searchEl.blur();
+          showDestination({ lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], name: searchEl.value });
+        });
+      } catch (e) { resultsEl.style.display = "none"; }
+    }
+
+    // ---------- käynnistys ----------
+    loadStations();
+    setInterval(loadStations, 30000);
+    setTimeout(() => document.getElementById("locate").click(), 600); // kysy sijaintia heti
+    setSheetHeightVar();
+
+    // rekisteröi service worker (offline-tuki + asennettavuus)
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
+</body>
+</html>
