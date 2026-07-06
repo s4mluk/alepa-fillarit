@@ -16,6 +16,8 @@
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Kartan kääntö (rotate): kahdella sormella puhelimessa, Shift+veto koneella -->
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
 
   <style>
     :root {
@@ -160,7 +162,15 @@
     const OSRM = "https://routing.openstreetmap.de/routed-foot/route/v1/driving/";
     const PHOTON = "https://photon.komoot.io/api/";
 
-    const map = L.map("map", { zoomControl: false }).setView([60.1699, 24.9384], 13);
+    const map = L.map("map", {
+      zoomControl: false,
+      rotate: true,           // salli kartan kääntäminen (kompassisuunta)
+      touchRotate: true,      // kahdella sormella kääntö puhelimessa
+      shiftKeyRotate: true,   // Shift + veto koneella
+      bearing: 0,
+      // kompassinappi (näkyy vain kun karttaa on käännetty → nollaa pohjoiseen)
+      rotateControl: { closeOnZeroBearing: true, position: "bottomleft" },
+    }).setView([60.1699, 24.9384], 13);
     L.control.zoom({ position: "bottomleft" }).addTo(map);
     L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
       attribution: '&copy; OpenStreetMap, CARTO · Data: Digitransit/HSL (CC BY 4.0)', maxZoom: 20,
@@ -403,7 +413,7 @@
         icon: L.divIcon({ className: "", html: '<div class="userdot"></div>', iconSize: [18,18], iconAnchor: [9,9] }),
         zIndexOffset: 1000, interactive: false,
       }).addTo(map);
-      if (recenter) map.setView([lat, lng], 15, { animate: true });
+      if (recenter) map.setView([lat, lng], 16, { animate: true }); // zoomaa lähelle sijaintiasi
     }
     document.getElementById("locate").onclick = () => {
       if (!navigator.geolocation) return toast("Selain ei tue paikannusta");

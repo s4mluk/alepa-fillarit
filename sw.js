@@ -1,5 +1,5 @@
 // Yksinkertainen service worker: sovelluskuori välimuistiin, data aina verkosta.
-const CACHE = "alepa-fillarit-v2";
+const CACHE = "alepa-fillarit-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const SHELL = [
   "./apple-touch-icon.png",
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+  "https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js",
 ];
 
 self.addEventListener("install", e => {
