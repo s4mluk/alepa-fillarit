@@ -69,16 +69,20 @@
     }
     .fab svg { color: var(--user); }
 
-    /* Alapaneeli (sheet) */
+    /* Alapaneeli (sheet) — vedettävä */
     .sheet {
       position: absolute; left: 0; right: 0; bottom: 0; z-index: 1150;
       background: #fff; border-radius: 22px 22px 0 0;
       box-shadow: 0 -6px 30px rgba(16,20,26,.16);
-      padding: 8px 18px calc(18px + env(safe-area-inset-bottom));
-      max-height: 72vh; overflow-y: auto;
-      transition: transform .25s ease;
+      height: 132px; display: flex; flex-direction: column;
     }
-    .grip { width: 42px; height: 5px; border-radius: 3px; background: #e2e6eb; margin: 4px auto 12px; }
+    .grip-zone { flex: none; padding: 10px 0 6px; cursor: grab; touch-action: none; }
+    .grip-zone:active { cursor: grabbing; }
+    .grip { width: 42px; height: 5px; border-radius: 3px; background: #d7dbe2; margin: 0 auto; }
+    .sheet-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 4px 18px calc(18px + env(safe-area-inset-bottom)); }
+    /* Kartan alalaidan kontrollit (zoom, attribuutio) nousevat sheetin yläpuolelle */
+    .leaflet-bottom { bottom: var(--sheet-h, 140px); transition: bottom .2s ease; }
     .sheet h1 { font-size: 19px; margin: 0 0 2px; }
     .sheet .sub { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
 
@@ -145,7 +149,10 @@
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></svg>
   </button>
 
-  <div class="sheet" id="sheet"></div>
+  <div class="sheet" id="sheet">
+    <div class="grip-zone" id="gripZone"><div class="grip"></div></div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </div>
   <div class="toast" id="toast"></div>
 
   <script>
@@ -158,6 +165,7 @@
     L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
       attribution: '&copy; OpenStreetMap, CARTO · Data: Digitransit/HSL (CC BY 4.0)', maxZoom: 20,
     }).addTo(map);
+    map.attributionControl.setPosition("bottomleft"); // samaan nurkkaan zoomin kanssa, sheetin yläpuolelle
 
     let stations = [];
     let userLoc = null;             // {lat, lng}
@@ -188,10 +196,51 @@
       t.textContent = msg; t.classList.add("show");
       clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
     }
-    function setSheetHeightVar() {
-      const h = document.getElementById("sheet").offsetHeight || 168;
-      document.documentElement.style.setProperty("--sheet-h", h + "px");
+    // ---------- alapaneelin korkeus (vedettävä, 3 pysähdyskohtaa) ----------
+    const sheet = document.getElementById("sheet");
+    const sheetBody = document.getElementById("sheetBody");
+    const gripZone = document.getElementById("gripZone");
+    let sheetH = 132;
+    function snapPoints() {
+      const h = window.innerHeight;
+      return { peek: 132, half: Math.round(h * 0.46), full: Math.round(h * 0.86) };
     }
+    function setSheetH(h, animate = true) {
+      const s = snapPoints();
+      sheetH = Math.max(s.peek, Math.min(s.full, Math.round(h)));
+      sheet.style.transition = animate ? "height .25s ease" : "none";
+      sheet.style.height = sheetH + "px";
+      document.documentElement.style.setProperty("--sheet-h", sheetH + "px");
+    }
+    function snapNearest() {
+      const s = snapPoints();
+      const best = [s.peek, s.half, s.full].reduce((a, b) =>
+        Math.abs(b - sheetH) < Math.abs(a - sheetH) ? b : a);
+      setSheetH(best, true);
+    }
+    function expandForDetail() { if (sheetH < snapPoints().half) setSheetH(snapPoints().half, true); }
+
+    // vedä paneelia kahvasta (ja napautus vaihtaa peek/half)
+    let dragY = null, dragH = 0, dragMoved = 0;
+    gripZone.addEventListener("pointerdown", e => {
+      dragY = e.clientY; dragH = sheetH; dragMoved = 0;
+      gripZone.setPointerCapture(e.pointerId); sheet.style.transition = "none";
+    });
+    gripZone.addEventListener("pointermove", e => {
+      if (dragY == null) return;
+      const dy = dragY - e.clientY;
+      dragMoved = Math.max(dragMoved, Math.abs(dy));
+      setSheetH(dragH + dy, false);
+    });
+    function endDrag() {
+      if (dragY == null) return;
+      dragY = null;
+      if (dragMoved < 6) { const s = snapPoints(); setSheetH(sheetH > (s.peek + s.half) / 2 ? s.peek : s.half, true); }
+      else snapNearest();
+    }
+    gripZone.addEventListener("pointerup", endDrag);
+    gripZone.addEventListener("pointercancel", endDrag);
+    window.addEventListener("resize", () => setSheetH(sheetH, false));
 
     // ---------- asemat kartalle ----------
     function drawStations() {
@@ -235,8 +284,6 @@
     function clearRoute() { if (routeLine) { map.removeLayer(routeLine); routeLine = null; } }
 
     // ---------- näkymät (sheet) ----------
-    const sheet = document.getElementById("sheet");
-
     function showHome() {
       selected = null;
       const total = stations.reduce((a, s) => a + (s.free_bikes ?? 0), 0);
@@ -245,8 +292,7 @@
         dist(userLoc, {lat:a.latitude,lng:a.longitude}) - dist(userLoc, {lat:b.latitude,lng:b.longitude}));
       list = list.slice(0, 12);
 
-      sheet.innerHTML = `
-        <div class="grip"></div>
+      sheetBody.innerHTML = `
         <h1>Alepa-fillarit</h1>
         <p class="sub">${total} pyörää · ${stations.length} asemaa · ${userLoc ? "lähimmät sinusta" : "paina 📍 nähdäksesi lähimmät"}</p>
         <ul class="stationList">
@@ -260,9 +306,8 @@
             </li>`;
           }).join("")}
         </ul>`;
-      sheet.querySelectorAll("li[data-id]").forEach(li =>
+      sheetBody.querySelectorAll("li[data-id]").forEach(li =>
         li.addEventListener("click", () => selectStation(stations.find(s => s.id === li.dataset.id))));
-      setSheetHeightVar();
     }
 
     async function selectStation(s) {
@@ -271,8 +316,7 @@
       const b = s.free_bikes ?? 0;
       map.setView([s.latitude, s.longitude], Math.max(map.getZoom(), 15), { animate: true });
 
-      sheet.innerHTML = `
-        <div class="grip"></div>
+      sheetBody.innerHTML = `
         <button class="back" id="back">‹ Takaisin</button>
         <div class="detail">
           <div class="top">
@@ -288,7 +332,7 @@
       document.getElementById("back").onclick = () => { clearRoute(); showHome(); };
       const go = () => routeToStation(s);
       document.getElementById("go").onclick = go;
-      setSheetHeightVar();
+      expandForDetail();
 
       if (userLoc) routeToStation(s); // piirrä heti jos sijainti tiedossa
       else document.getElementById("eta").textContent = "Paina 📍 niin näet reitin";
@@ -302,7 +346,7 @@
         const rt = await walkRoute(userLoc, to);
         if (eta) eta.textContent = `🚶 ${fmtMin(rt.duration)} kävelyä · ${fmtDist(rt.distance)}`;
         const grp = L.latLngBounds([ [userLoc.lat, userLoc.lng], [s.latitude, s.longitude] ]);
-        map.fitBounds(grp, { paddingTopLeft: [40, 90], paddingBottomRight: [40, sheet.offsetHeight + 30] });
+        map.fitBounds(grp, { paddingTopLeft: [40, 90], paddingBottomRight: [40, sheetH + 30] });
       } catch (e) { if (eta) eta.textContent = "Reittiä ei löytynyt"; }
     }
 
@@ -321,8 +365,7 @@
         if (d < best) { best = d; near = s; }
       }
 
-      sheet.innerHTML = `
-        <div class="grip"></div>
+      sheetBody.innerHTML = `
         <button class="back" id="back">‹ Takaisin</button>
         <div class="detail">
           <h1>${esc(place.name)}</h1>
@@ -343,11 +386,11 @@
           const rt = await walkRoute(userLoc, to);
           eta.textContent = `🚶 ${fmtMin(rt.duration)} · ${fmtDist(rt.distance)} määränpäähän`;
           map.fitBounds(L.latLngBounds([[userLoc.lat,userLoc.lng],[to.lat,to.lng]]),
-            { paddingTopLeft:[40,90], paddingBottomRight:[40, sheet.offsetHeight+30] });
+            { paddingTopLeft:[40,90], paddingBottomRight:[40, sheetH+30] });
         } catch { eta.textContent = "Reittiä ei löytynyt"; }
       };
       if (near) document.getElementById("goStation").onclick = () => selectStation(near);
-      setSheetHeightVar();
+      expandForDetail();
       map.setView([to.lat, to.lng], 15, { animate: true });
       if (userLoc) document.getElementById("goDest").click();
     }
@@ -416,7 +459,7 @@
     loadStations();
     setInterval(loadStations, 30000);
     setTimeout(() => document.getElementById("locate").click(), 600); // kysy sijaintia heti
-    setSheetHeightVar();
+    setSheetH(snapPoints().peek, false); // alkuun pieni peek → kartta iso
 
     // rekisteröi service worker (offline-tuki + asennettavuus)
     if ("serviceWorker" in navigator) {
