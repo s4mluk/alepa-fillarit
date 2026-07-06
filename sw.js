@@ -1,9 +1,10 @@
 // Yksinkertainen service worker: sovelluskuori välimuistiin, data aina verkosta.
-const CACHE = "alepa-fillarit-202607061329";
+const CACHE = "alepa-fillarit-202607061346";
 const SHELL = [
   "./",
   "./index.html",
   "./css/app.css",
+  "./js/util.js",
   "./js/app.js",
   "./manifest.webmanifest",
   "./icon-192.png",

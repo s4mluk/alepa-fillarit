@@ -24,21 +24,13 @@ let destMarker = null;
 let routeLine = null;
 let selected = null;            // valittu asema
 const markerLayer = L.layerGroup().addTo(map);
+const markers = new Map();       // asema-id -> { marker, bikes } — pidetään elossa refreshien yli
 
 // ---------- apurit ----------
-const R = 6371000;
-function dist(a, b) {
-  const dLat = (b.lat - a.lat) * Math.PI/180, dLng = (b.lng - a.lng) * Math.PI/180;
-  const la1 = a.lat*Math.PI/180, la2 = b.lat*Math.PI/180;
-  const x = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
-  return 2*R*Math.asin(Math.sqrt(x));
-}
-const fmtDist = m => m < 1000 ? Math.round(m) + " m" : (m/1000).toFixed(1) + " km";
-const fmtMin  = s => Math.max(1, Math.round(s/60)) + " min";
+// dist, fmtDist, fmtMin, esc tulevat js/util.js:stä (ladataan ennen tätä tiedostoa).
 const colorFor = b => b >= 5 ? getComputedStyle(document.documentElement).getPropertyValue('--good')
                     : b >= 1 ? getComputedStyle(document.documentElement).getPropertyValue('--mid')
                     : getComputedStyle(document.documentElement).getPropertyValue('--none');
-const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 let toastTimer;
 function toast(msg) {
@@ -93,19 +85,37 @@ gripZone.addEventListener("pointercancel", endDrag);
 window.addEventListener("resize", () => setSheetH(sheetH, false));
 
 // ---------- asemat kartalle ----------
+function pinIcon(bikes) {
+  const size = 30;
+  return L.divIcon({
+    className: "", iconSize: [size, size], iconAnchor: [size/2, size/2],
+    html: `<div class="pin" style="width:${size}px;height:${size}px;background:${colorFor(bikes)}">${bikes}</div>`
+  });
+}
+
+// Inkrementaalinen: päivitä vain muuttuneet pinnit, älä pura koko DOM:ia joka refreshillä.
+// (456 asemaa — clearLayers() + uudelleenluonti aiheutti nykäyksen joka 30s.)
 function drawStations() {
-  markerLayer.clearLayers();
+  const seen = new Set();
   for (const s of stations) {
+    seen.add(s.id);
     const bikes = s.free_bikes ?? 0;
-    const size = 30;
-    const icon = L.divIcon({
-      className: "", iconSize: [size, size], iconAnchor: [size/2, size/2],
-      html: `<div class="pin" style="width:${size}px;height:${size}px;background:${colorFor(bikes)}">${bikes}</div>`
-    });
-    const m = L.marker([s.latitude, s.longitude], { icon })
-      .bindTooltip(`${esc(s.name)} · ${bikes} pyörää`, { direction: "top" })
-      .on("click", () => selectStation(s));
-    m.addTo(markerLayer);
+    const entry = markers.get(s.id);
+    if (!entry) {
+      const m = L.marker([s.latitude, s.longitude], { icon: pinIcon(bikes) })
+        .bindTooltip(`${esc(s.name)} · ${bikes} pyörää`, { direction: "top" })
+        // hae tuore asema klikkaushetkellä, ettei detail näytä vanhaa lukua
+        .on("click", () => { const cur = stations.find(x => x.id === s.id); if (cur) selectStation(cur); });
+      m.addTo(markerLayer);
+      markers.set(s.id, { marker: m, bikes });
+    } else if (entry.bikes !== bikes) {
+      entry.marker.setIcon(pinIcon(bikes));
+      entry.marker.setTooltipContent(`${esc(s.name)} · ${bikes} pyörää`);
+      entry.bikes = bikes;
+    }
+  }
+  for (const [id, entry] of markers) {
+    if (!seen.has(id)) { markerLayer.removeLayer(entry.marker); markers.delete(id); }
   }
 }
 
